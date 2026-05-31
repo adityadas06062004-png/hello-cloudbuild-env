@@ -1,45 +1,47 @@
-# Copyright 2018 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# [START cloudbuild]
 steps:
-# This step runs the unit tests on the app
-- name: 'python:3.7-slim'
-  id: Test
-  entrypoint: /bin/sh
+# This step deploys the new version of our container image
+# in the hello-cloudbuild Kubernetes Engine cluster.
+- name: 'gcr.io/cloud-builders/kubectl'
+  id: Deploy
+  args:
+  - 'apply'
+  - '-f'
+  - 'kubernetes.yaml'
+  env:
+  - 'CLOUDSDK_COMPUTE_REGION=us-west1'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=hello-cloudbuild'
+# This step copies the applied manifest to the production branch
+- name: 'gcr.io/cloud-builders/git'
+  secretEnv: ['SSH_KEY']
+  entrypoint: 'bash'
   args:
   - -c
-  - 'pip install flask && python test_app.py -v'
-
-# This step builds the container image.
-- name: 'gcr.io/cloud-builders/docker'
-  id: Build
+  - |
+    echo "$$SSH_KEY" >> /root/.ssh/id_rsa
+    chmod 400 /root/.ssh/id_rsa
+    cp known_hosts.github /root/.ssh/known_hosts
+  volumes:
+  - name: ssh
+    path: /root/.ssh
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: Copy to production branch
+  entrypoint: /bin/sh
   args:
-  - 'build'
-  - '-t'
-  - 'us-west1-docker.pkg.dev/$PROJECT_ID/my-repository/hello-cloudbuild:$SHORT_SHA'
-  - '.'
-
-# This step pushes the image to Artifact Registry
-# The PROJECT_ID and SHORT_SHA variables are automatically
-# replaced by Cloud Build.
-- name: 'gcr.io/cloud-builders/docker'
-  id: Push
-  args:
-  - 'push'
-  - 'us-west1-docker.pkg.dev/$PROJECT_ID/my-repository/hello-cloudbuild:$SHORT_SHA'
-# [END cloudbuild]
-
+  - '-c'
+  - |
+    set -x && \
+    git config user.email $(gcloud auth list --filter=status:ACTIVE --format='value(account)') && \
+    git fetch origin production && \
+    git checkout production && \
+    git checkout $COMMIT_SHA kubernetes.yaml && \
+    git commit -m "Manifest from commit $COMMIT_SHA" && \
+    git push origin production
+  volumes:
+  - name: ssh
+    path: /root/.ssh
+availableSecrets:
+  secretManager:
+  - versionName: projects/$PROJECT_NUMBER/secrets/ssh_key_secret/versions/1
+    env: 'SSH_KEY'
 options:
   logging: CLOUD_LOGGING_ONLY
