@@ -29,4 +29,5 @@ In the end, you have a system where:
 * You have a view of successful and failed deployments in Cloud Build.
 * You can rollback to any previous deployment by re-executing the corresponding
   job in Cloud Build. A rollback also updates the _production_ branch to
-  truthfully reflect the history of deployments.
+  truthfully reflect the history of deployments.  
+  
